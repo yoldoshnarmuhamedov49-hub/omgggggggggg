@@ -1,0 +1,515 @@
+import asyncio
+import logging
+import json
+import os
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
+from aiogram.filters import CommandStart, Command
+from aiogram.types import (
+    ReplyKeyboardMarkup, KeyboardButton, 
+    InlineKeyboardMarkup, InlineKeyboardButton
+)
+
+# =========================================================
+# ⚙️ BOSH SOZLAMALAR (BOSH ADMIN & KARTA)
+# =========================================================
+TOKEN = "8779396683:AAE9tBDGn43dluGmWB2JhxNS-9ZJb-3fFSI"
+ADMIN_ID = 8527026238               # Bosh admin ID-si
+ADMIN_USERNAME = "@VENOX_Uz1"       # Bosh admin Username-i
+CARD_NUMBER = "4916 9903 1277 1972" # VISA Karta raqami
+DB_FILE = "users_db.json"
+
+# ⭐ STARS NARXLARI (OSHIRILGAN VA YAXLITLANGAN)
+STARS_PRICES = [
+    (100, 28000),
+    (250, 65000),
+    (500, 130000),
+    (1000, 255000),
+    (2500, 635000),
+    (10000, 2500000),
+    (50000, 12500000),
+    (150000, 37500000),
+]
+
+# 💎 TELEGRAM PREMIUM NARXLARI
+PREMIUM_PRICES = [
+    {"title": "1 oylik 💎", "price": 45000, "key": "1m"},
+    {"title": "3 oylik 💎", "price": 182000, "key": "3m"},
+    {"title": "6 oylik 💎", "price": 240000, "key": "6m"},
+    {"title": "1 yillik 💎", "price": 300000, "key": "1y"},
+]
+
+# 🎮 ROBUX NARXLARI (OSHIRILGAN VA YAXLITLANGAN)
+ROBUX_PRICES = [
+    (40, 10000),
+    (80, 17000),
+    (120, 26000),
+    (160, 33000),
+    (200, 42000),
+    (240, 49000),
+    (280, 58000),
+    (320, 66000),
+    (360, 74000),
+    (500, 78000),
+    (540, 86000),
+    (580, 93000),
+    (620, 102000),
+    (660, 110000),
+    (700, 118000),
+    (740, 126000),
+    (780, 134000),
+    (1000, 155000),
+]
+
+# 🎁 GIFT NARXLARI
+GIFTS_PRICES = [
+    {"name": "💖 Yurak (15 ⭐)", "price": 4000, "key": "Yurak"},
+    {"name": "🧸 Ayiqcha (15 ⭐)", "price": 4000, "key": "Ayiqcha"},
+    {"name": "🎁 Sovg'a (25 ⭐)", "price": 6000, "key": "Sovga"},
+    {"name": "🌹 Roza (25 ⭐)", "price": 6000, "key": "Roza"},
+    {"name": "🎂 Tort (50 ⭐)", "price": 11000, "key": "Tort"},
+    {"name": "🚀 Raketa (50 ⭐)", "price": 11000, "key": "Raketa"},
+    {"name": "💍 Uzuk (50 ⭐)", "price": 11000, "key": "Uzuk"},
+    {"name": "💐 Guldasta (50 ⭐)", "price": 11000, "key": "Guldasta"},
+    {"name": "🏆 Kubok (100 ⭐)", "price": 20000, "key": "Kubok"},
+    {"name": "💎 Olmos (100 ⭐)", "price": 20000, "key": "Olmos"},
+]
+# =========================================================
+
+bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher()
+
+# --- BAZA BILAN ISHLASH ---
+def load_db():
+    if not os.path.exists(DB_FILE):
+        return {}
+    try:
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_db(data):
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+def register_user(user_id, referrer_id=None):
+    db = load_db()
+    user_str = str(user_id)
+    is_new = False
+    
+    if user_str not in db:
+        db[user_str] = {
+            "balance": 0,
+            "referrer": referrer_id,
+            "referrals_count": 0
+        }
+        is_new = True
+        
+        # Referal bonusi (100 so'm)
+        if referrer_id and str(referrer_id) != user_str:
+            ref_str = str(referrer_id)
+            if ref_str not in db:
+                db[ref_str] = {"balance": 0, "referrer": None, "referrals_count": 0}
+            
+            db[ref_str]["balance"] = db[ref_str].get("balance", 0) + 100
+            db[ref_str]["referrals_count"] = db[ref_str].get("referrals_count", 0) + 1
+            
+    save_db(db)
+    return is_new
+
+def get_user_data(user_id):
+    db = load_db()
+    user_str = str(user_id)
+    if user_str not in db:
+        return {"balance": 0, "referrer": None, "referrals_count": 0}
+    return db[user_str]
+
+def add_user_balance(user_id, amount):
+    db = load_db()
+    user_str = str(user_id)
+    if user_str not in db:
+        db[user_str] = {"balance": 0, "referrer": None, "referrals_count": 0}
+    
+    db[user_str]["balance"] += amount
+    save_db(db)
+    return db[user_str]["balance"]
+
+# --- MENYULAR ---
+
+main_reply_menu = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="⭐ Stars olish"), KeyboardButton(text="💎 Premium olish")],
+        [KeyboardButton(text="⚡ Robux olish"), KeyboardButton(text="🎁 Gift olish")],
+        [KeyboardButton(text="👤 Hisobim"), KeyboardButton(text="👥 Referal")],
+        [KeyboardButton(text="📖 Qo'llanma"), KeyboardButton(text="📞 Admin")]
+    ],
+    resize_keyboard=True,
+    persistent=True
+)
+
+def build_start_inline_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⭐ Stars", callback_data="menu_stars"),
+            InlineKeyboardButton(text="💎 Premium", callback_data="menu_premium")
+        ],
+        [
+            InlineKeyboardButton(text="⚡ Robux", callback_data="menu_robux"),
+            InlineKeyboardButton(text="🎁 Gifts", callback_data="menu_gift")
+        ],
+        [
+            InlineKeyboardButton(text="👤 Hisobim", callback_data="menu_profile"),
+            InlineKeyboardButton(text="👥 Referal", callback_data="menu_referral")
+        ]
+    ])
+
+def build_stars_menu():
+    buttons = []
+    for stars, price in STARS_PRICES:
+        txt = f"⭐ {stars:,} stars — {price:,} UZS".replace(",", " ")
+        buttons.append([InlineKeyboardButton(text=txt, callback_data=f"buy_stars_{stars}_{price}")])
+    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def build_premium_menu():
+    buttons = []
+    for item in PREMIUM_PRICES:
+        txt = f"💎 Premium {item['title']} — {item['price']:,} UZS".replace(",", " ")
+        buttons.append([InlineKeyboardButton(text=txt, callback_data=f"buy_prem_{item['key']}_{item['price']}")])
+    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def build_robux_menu():
+    buttons = []
+    row = []
+    for robux, price in ROBUX_PRICES:
+        txt = f"⚡ {robux} R$ — {price:,} UZS".replace(",", " ")
+        row.append(InlineKeyboardButton(text=txt, callback_data=f"buy_robux_{robux}_{price}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def build_gift_menu():
+    buttons = []
+    for item in GIFTS_PRICES:
+        txt = f"{item['name']} — {item['price']:,} so'm".replace(",", " ")
+        buttons.append([InlineKeyboardButton(text=txt, callback_data=f"buy_gift_{item['key']}_{item['price']}")])
+    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+# --- START HANDLER ---
+@dp.message(CommandStart())
+async def start_cmd(message: types.Message):
+    referrer_id = None
+    args = message.text.split()
+    if len(args) > 1 and args[1].isdigit():
+        referrer_id = int(args[1])
+            
+    is_new = register_user(message.from_user.id, referrer_id)
+    
+    if is_new and referrer_id and str(referrer_id) != str(message.from_user.id):
+        try:
+            await bot.send_message(
+                chat_id=referrer_id, 
+                text="🎉 <b>Sizda yangi referal!</b>\n\nDo'stingiz botga kirdi va hisobingizga <b>100 so'm</b> bonus qo'shildi!"
+            )
+        except Exception:
+            pass
+
+    welcome_text = (
+        f"Assalomu alaykum, <b>{message.from_user.first_name}</b>!\n\n"
+        "✨ <b>VENOX UZSTARS Botiga xush kelibsiz!</b>\n\n"
+        "⭐ <b>Telegram Stars</b> | 💎 <b>Telegram Premium</b>\n"
+        "⚡ <b>Roblox Robux</b> | 🎁 <b>Telegram Gifts</b>\n\n"
+        "Eng arzon va ishonchli xizmatlar shu yerda!\n"
+        "Kerakli bo'limni tanlang 👇"
+    )
+    
+    await message.answer(welcome_text, reply_markup=main_reply_menu)
+    await message.answer("👇 <b>Tezkor menyu:</b>", reply_markup=build_start_inline_menu())
+
+# --- MENYU TUGMALARI HANDLERLARI ---
+@dp.message(F.text == "⭐ Stars olish")
+async def stars_handler(message: types.Message):
+    register_user(message.from_user.id)
+    await message.answer("⭐ <b>Telegram Stars miqdorini tanlang:</b>", reply_markup=build_stars_menu())
+
+@dp.message(F.text == "💎 Premium olish")
+async def premium_handler(message: types.Message):
+    register_user(message.from_user.id)
+    await message.answer("💎 <b>Telegram Premium muddatini tanlang:</b>", reply_markup=build_premium_menu())
+
+@dp.message(F.text == "⚡ Robux olish")
+async def robux_handler(message: types.Message):
+    register_user(message.from_user.id)
+    await message.answer("⚡ <b>Roblox Robux paketini tanlang:</b>", reply_markup=build_robux_menu())
+
+@dp.message(F.text == "🎁 Gift olish")
+async def gift_handler(message: types.Message):
+    register_user(message.from_user.id)
+    await message.answer("🎁 <b>Gift sovg'asini tanlang:</b>", reply_markup=build_gift_menu())
+
+@dp.message(F.text == "👤 Hisobim")
+async def account_handler(message: types.Message):
+    register_user(message.from_user.id)
+    user = message.from_user
+    user_data = get_user_data(user.id)
+    balance = user_data.get("balance", 0)
+    ref_count = user_data.get("referrals_count", 0)
+    
+    msg = (
+        f"👤 <b>Sizning profilingiz:</b>\n\n"
+        f"🆔 ID: <code>{user.id}</code>\n"
+        f"👤 Ism: {user.full_name}\n"
+        f"💰 Balans: <b>{balance:,} so'm</b>\n"
+        f"👥 Chaqirilgan do'stlar: <b>{ref_count} ta</b>"
+    ).replace(",", " ")
+    await message.answer(msg)
+
+@dp.message(F.text == "👥 Referal")
+async def referal_handler(message: types.Message):
+    register_user(message.from_user.id)
+    user_id = message.from_user.id
+    user_data = get_user_data(user_id)
+    ref_count = user_data.get("referrals_count", 0)
+    
+    bot_info = await bot.get_me()
+    ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
+    
+    msg = (
+        f"👥 <b>Referal tizimi:</b>\n\n"
+        f"Do'stlaringizni taklif qiling va har bir kirgan do'stingiz uchun <b>100 so'm</b> hisobingizga oling!\n\n"
+        f"📊 Siz taklif qilgan do'stlar: <b>{ref_count} ta</b>\n\n"
+        f"🔗 <b>Sizning havolangiz:</b>\n<code>{ref_link}</code>"
+    )
+    await message.answer(msg)
+
+@dp.message(F.text == "📖 Qo'llanma")
+async def guide_handler(message: types.Message):
+    guide_text = (
+        "📖 <b>Botdan foydalanish qo'llanmasi:</b>\n\n"
+        "1️⃣ <b>Balansni to'ldirish:</b>\n"
+        f"   • Kartaga: <code>{CARD_NUMBER}</code> pul o'tkazing.\n"
+        f"   • Chek va ID ingizni {ADMIN_USERNAME} ga yuboring.\n"
+        "   • Admin balansingizni to'ldirib beradi.\n\n"
+        "2️⃣ <b>Xarid qilish:</b>\n"
+        "   • Stars, Premium, Robux yoki Gift bo'limidan mahsulotni tanlang.\n"
+        "   • Balansingizdan pul yechilib, buyurtma tezda adminga yuboriladi!\n\n"
+        f"📞 <b>Bosh Admin:</b> {ADMIN_USERNAME}"
+    )
+    await message.answer(guide_text)
+
+@dp.message(F.text == "📞 Admin")
+async def admin_handler(message: types.Message):
+    await message.answer(f"📞 <b>Bosh Admin:</b> {ADMIN_USERNAME}")
+
+# --- INLINE MENYU CALLBACKLARI ---
+@dp.callback_query(F.data == "menu_stars")
+async def inline_stars(callback: types.CallbackQuery):
+    await callback.message.answer("⭐ <b>Telegram Stars miqdorini tanlang:</b>", reply_markup=build_stars_menu())
+    await callback.answer()
+
+@dp.callback_query(F.data == "menu_premium")
+async def inline_premium(callback: types.CallbackQuery):
+    await callback.message.answer("💎 <b>Telegram Premium muddatini tanlang:</b>", reply_markup=build_premium_menu())
+    await callback.answer()
+
+@dp.callback_query(F.data == "menu_robux")
+async def inline_robux(callback: types.CallbackQuery):
+    await callback.message.answer("⚡ <b>Roblox Robux paketini tanlang:</b>", reply_markup=build_robux_menu())
+    await callback.answer()
+
+@dp.callback_query(F.data == "menu_gift")
+async def inline_gift(callback: types.CallbackQuery):
+    await callback.message.answer("🎁 <b>Gift sovg'asini tanlang:</b>", reply_markup=build_gift_menu())
+    await callback.answer()
+
+@dp.callback_query(F.data == "menu_profile")
+async def inline_profile(callback: types.CallbackQuery):
+    user = callback.from_user
+    user_data = get_user_data(user.id)
+    balance = user_data.get("balance", 0)
+    ref_count = user_data.get("referrals_count", 0)
+    msg = (
+        f"👤 <b>Sizning profilingiz:</b>\n\n"
+        f"🆔 ID: <code>{user.id}</code>\n"
+        f"👤 Ism: {user.full_name}\n"
+        f"💰 Balans: <b>{balance:,} so'm</b>\n"
+        f"👥 Chaqirilgan do'stlar: <b>{ref_count} ta</b>"
+    ).replace(",", " ")
+    await callback.message.answer(msg)
+    await callback.answer()
+
+@dp.callback_query(F.data == "menu_referral")
+async def inline_referral(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    user_data = get_user_data(user_id)
+    ref_count = user_data.get("referrals_count", 0)
+    bot_info = await bot.get_me()
+    ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
+    msg = (
+        f"👥 <b>Referal tizimi:</b>\n\n"
+        f"Do'stlaringizni taklif qiling va har bir kirgan do'stingiz uchun <b>100 so'm</b> hisobingizga oling!\n\n"
+        f"📊 Siz taklif qilgan do'stlar: <b>{ref_count} ta</b>\n\n"
+        f"🔗 <b>Sizning havolangiz:</b>\n<code>{ref_link}</code>"
+    )
+    await callback.message.answer(msg)
+    await callback.answer()
+
+@dp.callback_query(F.data == "back_to_menu")
+async def back_handler(callback: types.CallbackQuery):
+    await callback.message.delete()
+    await callback.message.answer("👇 <b>Asosiy menyu:</b>", reply_markup=build_start_inline_menu())
+
+# --- XARID QILISH QISMI ---
+async def handle_purchase(callback: types.CallbackQuery, item_name: str, price_num: int):
+    user = callback.from_user
+    user_data = get_user_data(user.id)
+    user_balance = user_data.get("balance", 0)
+
+    if user_balance < price_num:
+        msg_text = (
+            f"❌ <b>Balansingiz yetarli emas.</b>\n\n"
+            f"🛒 <b>Mahsulot:</b> {item_name}\n"
+            f"💰 <b>Narxi:</b> {price_num:,} so'm\n"
+            f"💳 <b>Sizning balansingiz:</b> {user_balance:,} so'm\n\n"
+            f"📌 Balansni to'ldirish uchun ushbu VISA kartaga pul o'tkazing va chek hamda ID ingizni adminga yuboring:\n"
+            f"💳 <b>Karta:</b> <code>{CARD_NUMBER}</code>\n"
+            f"🆔 <b>Sizning ID:</b> <code>{user.id}</code>\n"
+            f"👤 <b>Bosh Admin:</b> {ADMIN_USERNAME}"
+        ).replace(",", " ")
+        await callback.message.edit_text(msg_text)
+        await callback.answer()
+        return
+
+    new_balance = add_user_balance(user.id, -price_num)
+    
+    msg_text = (
+        f"✅ <b>Sizning buyurtmangiz qabul qilindi!</b>\n\n"
+        f"📦 <b>Sotib olindi:</b> {item_name}\n"
+        f"💵 <b>Yechildi:</b> {price_num:,} so'm\n"
+        f"💳 <b>Qolgan balans:</b> {new_balance:,} so'm\n\n"
+        f"📩 Buyurtmangizni olish uchun adminga yozing: {ADMIN_USERNAME}"
+    ).replace(",", " ")
+    await callback.message.edit_text(msg_text)
+    await callback.answer()
+
+    try:
+        username_str = f"@{user.username}" if user.username else "yo'q"
+        admin_notif = (
+            f"🔔 <b>YANGI BUYURTMA!</b>\n\n"
+            f"👤 <b>Mijoz:</b> {user.full_name} ({username_str})\n"
+            f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
+            f"🛒 <b>Mahsulot:</b> {item_name} ({price_num:,} so'm)\n"
+            f"💰 <b>Mijozning qolgan balansi:</b> {new_balance:,} so'm"
+        ).replace(",", " ")
+        await bot.send_message(chat_id=ADMIN_ID, text=admin_notif)
+    except Exception as e:
+        logging.error(f"Adminga bildirishnoma yuborishda xatolik: {e}")
+
+@dp.callback_query(F.data.startswith("buy_stars_"))
+async def process_stars(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    await handle_purchase(callback, f"⭐ {parts[2]} Stars", int(parts[3]))
+
+@dp.callback_query(F.data.startswith("buy_prem_"))
+async def process_prem(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    key_map = {"1m": "1 Oylik", "3m": "3 Oylik", "6m": "6 Oylik", "1y": "1 Yillik"}
+    title = key_map.get(parts[2], parts[2])
+    await handle_purchase(callback, f"💎 Premium ({title})", int(parts[3]))
+
+@dp.callback_query(F.data.startswith("buy_robux_"))
+async def process_robux(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    await handle_purchase(callback, f"⚡ {parts[2]} Robux", int(parts[3]))
+
+@dp.callback_query(F.data.startswith("buy_gift_"))
+async def process_gift(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    await handle_purchase(callback, f"🎁 {parts[2]} Gift", int(parts[3]))
+
+# --- BOSH ADMIN BUYRUQLARI ---
+
+@dp.message(Command("send"))
+async def send_money_cmd(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        args = message.text.split()
+        target_id = int(args[1])
+        amount = int(args[2].replace(".", "").replace(",", ""))
+        
+        new_balance = add_user_balance(target_id, amount)
+        
+        try:
+            await bot.send_message(
+                target_id, 
+                f"✅ <b>Balansingiz to'ldirildi!</b>\n\n"
+                f"💰 Qo'shildi: <b>{amount:,} so'm</b>\n"
+                f"💳 Hozirgi balansingiz: <b>{new_balance:,} so'm</b>".replace(",", " ")
+            )
+        except Exception:
+            pass
+
+        await message.answer(f"✅ <code>{target_id}</code> ID ga <b>{amount:,} so'm</b> qo'shildi!\nYangi balans: <b>{new_balance:,} so'm</b>".replace(",", " "))
+    except Exception as e:
+        await message.answer(f"❌ <b>Format:</b> <code>/send 8527026238 25000</code>\nXatolik: {e}")
+
+@dp.message(Command("stat"))
+async def stat_cmd(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    db = load_db()
+    total_users = len(db)
+    total_balance = sum(u.get("balance", 0) if isinstance(u, dict) else 0 for u in db.values())
+    await message.answer(f"📊 <b>Bot statistikasi:</b>\n\n👤 Jami foydalanuvchilar: <b>{total_users} ta</b>\n💰 Jami foydalanuvchilar balansi: <b>{total_balance:,} so'm</b>".replace(",", " "))
+
+# --- BOSH ADMIN HAR QANDAY XABARINI AVTO-TARQATISH ---
+@dp.message(F.from_user.id == ADMIN_ID)
+async def admin_auto_broadcast(message: types.Message):
+    if message.text:
+        if message.text.startswith("/") or message.text in [
+            "⭐ Stars olish", "💎 Premium olish", "⚡ Robux olish", 
+            "🎁 Gift olish", "👤 Hisobim", "👥 Referal", 
+            "📖 Qo'llanma", "📞 Admin"
+        ]:
+            return
+
+    db = load_db()
+    if not db:
+        await message.answer("❌ Bazada foydalanuvchilar yo'q! Botga kamida 1 kishi kirib /start bosishi kerak.")
+        return
+
+    status_msg = await message.answer("🚀 Xabaringiz barcha bot foydalanuvchilariga yuborilmoqda...")
+
+    count = 0
+    failed = 0
+    for user_id_str in list(db.keys()):
+        try:
+            await message.copy_to(chat_id=int(user_id_str))
+            count += 1
+            await asyncio.sleep(0.04)
+        except Exception:
+            failed += 1
+
+    await status_msg.edit_text(
+        f"📢 <b>Xabaringiz barcha foydalanuvchilarga yetkazildi!</b>\n\n"
+        f"✅ Yuborildi: <b>{count} ta</b>\n"
+        f"❌ Yetib bormadi (bloklagan): <b>{failed} ta</b>"
+    )
+
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    print("Bot muvaffaqiyatli ishga tushdi!")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
